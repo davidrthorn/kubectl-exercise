@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	http.HandleFunc("/health", livenessHandler)
+	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/readiness", readinessHandler)
 
 	port := 8080
@@ -21,7 +21,7 @@ func main() {
 		Addr:    fmt.Sprintf(":%d", port),
 	}
 
-	// Start Server
+	// start server
 	go func() {
 		log.Println(fmt.Sprintf("Starting server on port %d", port))
 		if err := server.ListenAndServe(); err != nil {
@@ -32,7 +32,7 @@ func main() {
 	gracefulShutdown(server)
 }
 
-func livenessHandler(w http.ResponseWriter, r *http.Request) {
+func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -50,6 +50,6 @@ func gracefulShutdown(srv *http.Server) {
 	defer cancel()
 	srv.Shutdown(ctx)
 
-	log.Println("Shutting server down")
+	log.Println("Shutting server down gracefully...")
 	os.Exit(0)
 }
