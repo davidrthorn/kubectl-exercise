@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: server-config
+  annotations:
+    x-k8s.io/curl-me-that: joke=curl-a-joke.herokuapp.com
+data: {}

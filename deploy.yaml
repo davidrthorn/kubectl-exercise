@@ -17,5 +17,16 @@ spec:
       containers:
       - name: server
         image: davidrthorn/kube-exercise-server:latest
+        volumeMounts:
+        - mountPath: /config
+          name: server-config-volume
         ports:
         - containerPort: 8080
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+      volumes:
+        - name: server-config-volume
+          configMap:
+           name: server-config
