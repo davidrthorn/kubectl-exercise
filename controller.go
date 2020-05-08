@@ -2,9 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
-	"net/http"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -22,8 +19,12 @@ import (
 	"k8s.io/klog"
 )
 
+// ConfigMapTransformer transforms a configMap and returns the transformed copy
+type ConfigMapTransformer interface {
+	Transform(*corev1.ConfigMap) (*corev1.ConfigMap, error)
+}
+
 const controllerAgentName = "configMap-controller"
-const watchAnnotation = "x-k8s.io/curl-me-that"
 const timeout = 10 * time.Second
 
 const (
@@ -36,18 +37,18 @@ const (
 
 // Controller is a controller to auto-populate ConfigMaps with fetched data
 type Controller struct {
-	kubeclientset   kubernetes.Interface
-	configMapLister listers.ConfigMapLister
-	workqueue       workqueue.RateLimitingInterface
-	recorder        record.EventRecorder
-	httpClient      *http.Client
+	kubeclientset kubernetes.Interface
+	lister        listers.ConfigMapLister
+	workqueue     workqueue.RateLimitingInterface
+	recorder      record.EventRecorder
+	transformer   ConfigMapTransformer
 }
 
 // NewController returns a new configMap controller
 func NewController(
 	kubeclientset kubernetes.Interface,
-	configMapInformer informers.ConfigMapInformer,
-	httpClient *http.Client,
+	informer informers.ConfigMapInformer,
+	transformer ConfigMapTransformer,
 ) *Controller {
 
 	// Create event broadcaster to log events pertaining to this controller
@@ -58,11 +59,11 @@ func NewController(
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
 
 	controller := &Controller{
-		kubeclientset:   kubeclientset,
-		configMapLister: configMapInformer.Lister(),
-		workqueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "configMaps"),
-		recorder:        recorder,
-		httpClient:      httpClient,
+		kubeclientset: kubeclientset,
+		lister:        informer.Lister(),
+		workqueue:     workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "configMaps"),
+		recorder:      recorder,
+		transformer:   transformer,
 	}
 
 	klog.Info("Setting up event handlers")
@@ -132,7 +133,6 @@ func (c *Controller) processNextWorkItem() bool {
 	return true
 }
 
-// TODO: this has a lot of responsibility
 func (c *Controller) updateHandler(key string) error {
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -140,7 +140,7 @@ func (c *Controller) updateHandler(key string) error {
 		return nil
 	}
 
-	configMap, err := c.configMapLister.ConfigMaps(namespace).Get(name)
+	configMap, err := c.lister.ConfigMaps(namespace).Get(name)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			utilruntime.HandleError(fmt.Errorf("configMap '%s' in work queue no longer exists", key))
@@ -149,59 +149,16 @@ func (c *Controller) updateHandler(key string) error {
 		return err
 	}
 
-	annotations := configMap.GetAnnotations()
-	watchValue, ok := annotations[watchAnnotation]
-	if !ok {
-		return nil // no watched annotation found
-	}
-
-	dataKey, URL, err := c.GetDataKeyValuePair(watchValue)
+	populatedConfigMap, err := c.transformer.Transform(configMap)
 	if err != nil {
-		// we'll never be able to decode, so we don't want to requeue
-		utilruntime.HandleError(fmt.Errorf("could not decode annotation: %s", err))
-		return nil
+		return fmt.Errorf("could not populate config map: %s", err)
+	}
+	if populatedConfigMap == nil {
+		return nil // configMap was not watched
 	}
 
-	fetchedValue, err := c.fetchSimpleBody(URL)
-	if err != nil {
-		return fmt.Errorf("could not fetch data for annotation URL: %s", err)
-	}
-
-	configMapCopy := configMap.DeepCopy()
-	configMapCopy.Data[dataKey] = fetchedValue
-
-	c.kubeclientset.CoreV1().ConfigMaps(namespace).Update(configMapCopy)
+	c.kubeclientset.CoreV1().ConfigMaps(namespace).Update(populatedConfigMap)
 
 	c.recorder.Event(configMap, corev1.EventTypeNormal, SuccessSynced, ConfigMapUpdatedSuccessfully)
 	return nil
-}
-
-// TODO: this could be extracted to a separate annotation handler type
-// GetDataKeyValuePair returns the data key and data value for a watched annotation
-func (c *Controller) GetDataKeyValuePair(watchValue string) (string, string, error) {
-	spl := strings.Split(watchValue, "=")
-	if len(spl) != 2 {
-		return "", "", fmt.Errorf("watch values should be strings of the form 'key=value'. Value is '%s'", watchValue)
-	}
-	return spl[0], spl[1], nil
-}
-
-// TODO: this could be extracted to a separate annotation handler type
-func (c *Controller) fetchSimpleBody(URL string) (string, error) {
-	res, err := http.Get(URL)
-	if err != nil {
-		return "", fmt.Errorf("request failed: %s", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("url responded with status: %s", res.StatusCode)
-	}
-
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return "", fmt.Errorf("could not read body: %s", err)
-	}
-
-	return string(body), nil
 }
