@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/http"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	informers "k8s.io/client-go/informers/core/v1"
@@ -13,6 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog"
@@ -128,5 +132,76 @@ func (c *Controller) processNextWorkItem() bool {
 	return true
 }
 
-// TODO: implement configMap updating
-func (c *Controller) updateHandler(key string) error { return nil }
+// TODO: this has a lot of responsibility
+func (c *Controller) updateHandler(key string) error {
+	namespace, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
+		return nil
+	}
+
+	configMap, err := c.configMapLister.ConfigMaps(namespace).Get(name)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			utilruntime.HandleError(fmt.Errorf("configMap '%s' in work queue no longer exists", key))
+			return nil
+		}
+		return err
+	}
+
+	annotations := configMap.GetAnnotations()
+	watchValue, ok := annotations[watchAnnotation]
+	if !ok {
+		return nil // no watched annotation found
+	}
+
+	dataKey, URL, err := c.GetDataKeyValuePair(watchValue)
+	if err != nil {
+		// we'll never be able to decode, so we don't want to requeue
+		utilruntime.HandleError(fmt.Errorf("could not decode annotation: %s", err))
+		return nil
+	}
+
+	fetchedValue, err := c.fetchSimpleBody(URL)
+	if err != nil {
+		return fmt.Errorf("could not fetch data for annotation URL: %s", err)
+	}
+
+	configMapCopy := configMap.DeepCopy()
+	configMapCopy.Data[dataKey] = fetchedValue
+
+	c.kubeclientset.CoreV1().ConfigMaps(namespace).Update(configMapCopy)
+
+	c.recorder.Event(configMap, corev1.EventTypeNormal, SuccessSynced, ConfigMapUpdatedSuccessfully)
+	return nil
+}
+
+// TODO: this could be extracted to a separate annotation handler type
+// GetDataKeyValuePair returns the data key and data value for a watched annotation
+func (c *Controller) GetDataKeyValuePair(watchValue string) (string, string, error) {
+	spl := strings.Split(watchValue, "=")
+	if len(spl) != 2 {
+		return "", "", fmt.Errorf("watch values should be strings of the form 'key=value'. Value is '%s'", watchValue)
+	}
+	return spl[0], spl[1], nil
+}
+
+// TODO: this could be extracted to a separate annotation handler type
+func (c *Controller) fetchSimpleBody(URL string) (string, error) {
+	res, err := http.Get(URL)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %s", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("url responded with status: %s", res.StatusCode)
+	}
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return "", fmt.Errorf("could not read body: %s", err)
+	}
+
+	return string(body), nil
+}
