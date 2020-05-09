@@ -9,9 +9,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+// HTTPClient fetches data via HTTP
+type HTTPClient interface {
+	Get(url string) (*http.Response, error)
+}
+
 // DataPopulator updates a configMap's data based on a watched annotation
 type DataPopulator struct {
-	httpClient *http.Client
+	httpClient HTTPClient
 	keyToWatch string
 }
 

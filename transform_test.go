@@ -51,3 +51,6 @@ func TestGetDataKeyValuePairReturnsErrorForBadString(t *testing.T) {
 		}
 	}
 }
+
+func TestTransformReturnsMapPopulatedWithDataForValidAnnotation(t *testing.T) {
+}
