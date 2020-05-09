@@ -82,7 +82,6 @@ func build() (*Controller, error) {
 
 	factory := informers.NewSharedInformerFactory(clientset, 0)
 	informer := factory.Core().V1().ConfigMaps()
-
 	transformer := DataPopulator{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		keyToWatch: "x-k8s.io/curl-me-that",
