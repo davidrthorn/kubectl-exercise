@@ -1,8 +1,20 @@
 package main
 
 import (
+	"net/http"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+type MockHTTPClient struct {
+	get func(URL string) (*http.Response, error)
+}
+
+func (m *MockHTTPClient) Get(URL string) (*http.Response, error) {
+	return m.get(URL)
+}
 
 func TestGetDataKeyValuePairFormatsCorrectlyForGoodString(t *testing.T) {
 	sut := HTTPDataPopulator{nil, ""}
@@ -79,4 +91,22 @@ func TestValidURLIgnoresEmptyString(t *testing.T) {
 }
 
 func TestTransformReturnsMapPopulatedWithDataForValidAnnotation(t *testing.T) {
+	mockClient := &MockHTTPClient{}
+	sut := HTTPDataPopulator{mockClient, "watchThis"}
+
+	mockClient.get = func(URL string) (*http.Response, error) {
+		if URL != "http://app.example.com" {
+			t.Errorf("Mock http client received incorrect URL. Expected: %s; got: %s", "https://app.example.com", URL)
+			t.FailNow()
+		}
+		return &http.Response{}, nil
+	}
+
+	input := &corev1.ConfigMap{
+		ObjectMeta: v1.ObjectMeta{
+			Annotations: map[string]string{sut.keyToWatch: "someKey=https://app.example.com"},
+		},
+	}
+
+	sut.Transform(input)
 }
