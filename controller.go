@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -18,11 +19,6 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog"
 )
-
-// ConfigMapTransformer transforms a configMap and returns the transformed copy
-type ConfigMapTransformer interface {
-	Transform(*corev1.ConfigMap) (*corev1.ConfigMap, error)
-}
 
 const controllerAgentName = "configMap-controller"
 const timeout = 10 * time.Second
@@ -42,6 +38,7 @@ type Controller struct {
 	workqueue     workqueue.RateLimitingInterface
 	recorder      record.EventRecorder
 	transformer   ConfigMapTransformer
+	synced        cache.InformerSynced
 }
 
 // NewController returns a new configMap controller
@@ -64,6 +61,7 @@ func NewController(
 		workqueue:     workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "configMaps"),
 		recorder:      recorder,
 		transformer:   transformer,
+		synced:        informer.Informer().HasSynced,
 	}
 
 	klog.Info("Setting up event handlers")
@@ -79,18 +77,23 @@ func NewController(
 }
 
 // Run dispatches workers and listens for shutdown signal
-func (c *Controller) Run(threads int, stopCh <-chan struct{}) error {
+func (c *Controller) Run(ctx context.Context, threads int) error {
 	defer utilruntime.HandleCrash()
 	defer c.workqueue.ShutDown()
 
 	klog.Info("Starting configMap controller")
+
+	if ok := cache.WaitForCacheSync(ctx.Done(), c.synced); !ok {
+		return fmt.Errorf("failed to wait for caches to sync")
+	}
+
 	klog.Info("Starting workers")
 	for i := 0; i < threads; i++ {
-		go wait.Until(c.runWorker, time.Second, stopCh)
+		go wait.Until(c.runWorker, time.Second, ctx.Done())
 	}
 
 	klog.Info("Started workers")
-	<-stopCh
+	<-ctx.Done()
 	klog.Info("Shutting down workers")
 
 	return nil
