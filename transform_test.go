@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestGetDataKeyValuePairFormatsValidStringsCorrectly(t *testing.T) {
+func TestGetDataKeyValuePairFormatsCorrectlyForGoodString(t *testing.T) {
 	sut := DataPopulator{nil, ""}
 
 	cases := []map[string]string{
@@ -23,13 +23,31 @@ func TestGetDataKeyValuePairFormatsValidStringsCorrectly(t *testing.T) {
 	for _, c := range cases {
 		key, value, err := sut.getDataKeyValuePair(c["input"])
 		if err != nil {
-			t.Errorf("Got non-nil error")
+			t.Errorf("Got non-nil error for input '%s'", c["input"])
 		}
 		if key != c["key"] {
 			t.Errorf("Key was incorrect. Got: %s; want %s", key, c["key"])
 		}
 		if value != c["value"] {
 			t.Errorf("Value was incorrect. Got: %s; want %s", key, c["value"])
+		}
+	}
+}
+
+func TestGetDataKeyValuePairReturnsErrorForBadString(t *testing.T) {
+	sut := DataPopulator{nil, ""}
+
+	cases := []string{
+		"someKey=",
+		"someKey",
+		"",
+		"app.example.com",
+	}
+
+	for _, c := range cases {
+		_, _, err := sut.getDataKeyValuePair(c)
+		if err == nil {
+			t.Errorf("Got nil error for input '%s'", c)
 		}
 	}
 }

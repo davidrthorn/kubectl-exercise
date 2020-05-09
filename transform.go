@@ -41,7 +41,7 @@ func (p *DataPopulator) Transform(configMap *corev1.ConfigMap) (*corev1.ConfigMa
 
 func (p *DataPopulator) getDataKeyValuePair(watchValue string) (string, string, error) {
 	spl := strings.Split(watchValue, "=")
-	if len(spl) != 2 {
+	if len(spl) != 2 || spl[0] == "" || spl[1] == "" {
 		return "", "", fmt.Errorf("watch values should be strings of the form 'key=value'. Value is '%s'", watchValue)
 	}
 	return spl[0], spl[1], nil
