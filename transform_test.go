@@ -5,7 +5,7 @@ import (
 )
 
 func TestGetDataKeyValuePairFormatsCorrectlyForGoodString(t *testing.T) {
-	sut := HttpDataPopulator{nil, ""}
+	sut := HTTPDataPopulator{nil, ""}
 
 	cases := []map[string]string{
 		{
@@ -35,7 +35,7 @@ func TestGetDataKeyValuePairFormatsCorrectlyForGoodString(t *testing.T) {
 }
 
 func TestGetDataKeyValuePairReturnsErrorForBadString(t *testing.T) {
-	sut := HttpDataPopulator{nil, ""}
+	sut := HTTPDataPopulator{nil, ""}
 
 	cases := []string{
 		"someKey=",
@@ -49,6 +49,32 @@ func TestGetDataKeyValuePairReturnsErrorForBadString(t *testing.T) {
 		if err == nil {
 			t.Errorf("Got nil error for input '%s'", c)
 		}
+	}
+}
+
+func TestValidURLReturnsURLForGoodInput(t *testing.T) {
+	sut := HTTPDataPopulator{nil, ""}
+
+	cases := [][]string{
+		{"https://app.example.com", "https://app.example.com"}, // input, want
+		{"http://app.example.com", "http://app.example.com"},
+		{"app.example.com", "https://app.example.com"},
+	}
+
+	for _, c := range cases {
+		want := c[1]
+		got := sut.prefixURL(c[0])
+		if got != want {
+			t.Errorf("Incorrect URL returned. Expecting %s; got %s", want, got)
+		}
+	}
+}
+
+func TestValidURLIgnoresEmptyString(t *testing.T) {
+	sut := HTTPDataPopulator{nil, ""}
+	got := sut.prefixURL("")
+	if got != "" {
+		t.Errorf("Expected empty string. Got: %s", got)
 	}
 }
 

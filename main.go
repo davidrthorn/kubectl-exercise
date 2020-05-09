@@ -42,7 +42,7 @@ func main() {
 		}
 	}()
 
-	transformer := HttpDataPopulator{
+	transformer := HTTPDataPopulator{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		keyToWatch: "x-k8s.io/curl-me-that",
 	}

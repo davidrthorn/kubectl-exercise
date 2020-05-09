@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -55,12 +54,9 @@ func (p HTTPDataPopulator) getDataKeyValuePair(watchValue string) (string, strin
 }
 
 func (p HTTPDataPopulator) fetchSimpleBody(URL string) (string, error) {
-	u, err := p.validURL(URL)
-	if err != nil {
-		return "", fmt.Errorf("invalid URL (%s): %s", URL, err)
-	}
+	URL = p.prefixURL(URL)
 
-	res, err := p.httpClient.Get(u.String())
+	res, err := p.httpClient.Get(URL)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %s", err)
 	}
@@ -78,11 +74,9 @@ func (p HTTPDataPopulator) fetchSimpleBody(URL string) (string, error) {
 	return string(body), nil
 }
 
-// TODO: test
-func (p HTTPDataPopulator) validURL(URL string) (*url.URL, error) {
-	u, err := url.ParseRequestURI(URL)
-	if err != nil {
-		return url.ParseRequestURI("https://" + URL)
+func (p HTTPDataPopulator) prefixURL(URL string) string {
+	if URL != "" && !(strings.HasPrefix(URL, "http://") || strings.HasPrefix(URL, "https://")) {
+		return "https://" + URL
 	}
-	return u, nil
+	return URL
 }
