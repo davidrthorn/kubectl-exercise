@@ -3,20 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
-	informers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
-	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/record"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog"
 )
 
@@ -33,43 +26,34 @@ const (
 
 // Controller is a controller to auto-populate ConfigMaps with fetched data
 type Controller struct {
-	kubeclientset kubernetes.Interface
-	lister        listers.ConfigMapLister
-	workqueue     workqueue.RateLimitingInterface
-	recorder      record.EventRecorder
-	transformer   ConfigMapTransformer
-	synced        cache.InformerSynced
+	kubeclientset   kubernetes.Interface
+	informerFactory informers.SharedInformerFactory
+	lister          listers.ConfigMapLister
+	transformer     ConfigMapTransformer
 }
 
 // NewController returns a new configMap controller
 func NewController(
 	kubeclientset kubernetes.Interface,
-	informer informers.ConfigMapInformer,
+	informerFactory informers.SharedInformerFactory,
 	transformer ConfigMapTransformer,
 ) *Controller {
 
-	// Create event broadcaster to log events pertaining to this controller
-	klog.V(4).Info("Creating event broadcaster")
-	eventBroadcaster := record.NewBroadcaster()
-	eventBroadcaster.StartLogging(klog.Infof)
-	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events("")})
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
-
 	controller := &Controller{
-		kubeclientset: kubeclientset,
-		lister:        informer.Lister(),
-		workqueue:     workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "configMaps"),
-		recorder:      recorder,
-		transformer:   transformer,
-		synced:        informer.Informer().HasSynced,
+		kubeclientset:   kubeclientset,
+		informerFactory: informerFactory,
+		transformer:     transformer,
 	}
+
+	informer := informerFactory.Core().V1().ConfigMaps()
+	controller.lister = informer.Lister()
 
 	klog.Info("Setting up event handlers")
 
 	informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.enqueueConfigMap,
-		UpdateFunc: func(old, new interface{}) {
-			controller.enqueueConfigMap(new)
+		AddFunc: controller.addHandler,
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			controller.addHandler(newObj)
 		},
 	})
 
@@ -77,104 +61,40 @@ func NewController(
 }
 
 // Run dispatches workers and listens for shutdown signal
-func (c *Controller) Run(ctx context.Context, threads int) error {
-	defer utilruntime.HandleCrash()
-	defer c.workqueue.ShutDown()
-
-	klog.Info("Starting configMap controller")
-
-	if ok := cache.WaitForCacheSync(ctx.Done(), c.synced); !ok {
-		return fmt.Errorf("failed to wait for caches to sync")
-	}
-
-	klog.Info("Starting workers")
-	for i := 0; i < threads; i++ {
-		go wait.Until(c.runWorker, time.Second, ctx.Done())
-	}
-
-	klog.Info("Started workers")
-	<-ctx.Done()
-	klog.Info("Shutting down workers")
-
-	return nil
+func (c *Controller) Run(ctx context.Context) {
+	c.informerFactory.Start(ctx.Done())
 }
 
-func (c *Controller) runWorker() {
-	for c.processNextWorkItem() {
-	}
-}
-
-func (c *Controller) processNextWorkItem() bool {
-	obj, shutdown := c.workqueue.Get()
-
-	if shutdown {
-		return false
-	}
-
-	// We wrap this block in a func so we can defer c.workqueue.Done.
-	err := func(obj interface{}) error {
-		defer c.workqueue.Done(obj)
-
-		var key string
-		var ok bool
-
-		if key, ok = obj.(string); !ok {
-			c.workqueue.Forget(obj)
-			utilruntime.HandleError(fmt.Errorf("expected string in workqueue but got %#v", obj))
-			return nil
-		}
-
-		if err := c.updateHandler(key); err != nil {
-			c.workqueue.AddRateLimited(key)
-			return fmt.Errorf("error syncing '%s': %s, requeuing", key, err.Error())
-		}
-
-		c.workqueue.Forget(obj)
-		klog.Infof("Successfully synced '%s'", key)
-		return nil
-	}(obj)
-
+func (c *Controller) addHandler(obj interface{}) {
+	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
-		utilruntime.HandleError(err)
+		log.Println("key invalid") // TODO: good error handling
+		return
 	}
-	return true
-}
 
-func (c *Controller) updateHandler(key string) error {
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
-		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
-		return nil
+		fmt.Printf("invalid resource key: %s", key)
+		return
 	}
 
 	configMap, err := c.lister.ConfigMaps(namespace).Get(name)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			utilruntime.HandleError(fmt.Errorf("configMap '%s' in work queue no longer exists", key))
-			return nil
-		}
-		return err
+		log.Print(err)
+		return
 	}
 
 	populatedConfigMap, err := c.transformer.Transform(configMap)
 	if err != nil {
-		return fmt.Errorf("could not populate config map: %s", err)
-	}
-	if populatedConfigMap == nil {
-		return nil // configMap was not watched
-	}
-
-	c.kubeclientset.CoreV1().ConfigMaps(namespace).Update(populatedConfigMap)
-
-	c.recorder.Event(configMap, corev1.EventTypeNormal, SuccessSynced, ConfigMapUpdatedSuccessfully)
-	return nil
-}
-
-func (c *Controller) enqueueConfigMap(obj interface{}) {
-	key, err := cache.MetaNamespaceKeyFunc(obj)
-	if err != nil {
-		utilruntime.HandleError(err)
+		log.Print(err)
 		return
 	}
-	c.workqueue.Add(key)
+	if populatedConfigMap == nil {
+		return
+	}
+
+	_, err = c.kubeclientset.CoreV1().ConfigMaps(namespace).Update(populatedConfigMap)
+	if err != nil {
+		log.Println(err)
+	}
 }

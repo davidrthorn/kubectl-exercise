@@ -33,11 +33,8 @@ func main() {
 	}
 
 	ctx := context.Background()
-	controller, err := build()
-	if err != nil {
-		log.Fatalln("failed to build controller: " + err.Error())
-	}
-	go controller.Run(ctx, 2)
+	controller := build()
+	go controller.Run(ctx)
 
 	// start server
 	go func() {
@@ -47,6 +44,7 @@ func main() {
 		}
 	}()
 
+	// handle interrupt
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
@@ -68,24 +66,22 @@ func readinessHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func build() (*Controller, error) {
+func build() *Controller {
 	kubeconfig := os.Getenv("KUBECONFIG")
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
 	}
 
-	clientset, err := kubernetes.NewForConfig(config) // FIXME: need to load from config here?
+	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
 	}
 
 	factory := informers.NewSharedInformerFactory(clientset, 0)
-	informer := factory.Core().V1().ConfigMaps()
 	transformer := DataPopulator{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		keyToWatch: "x-k8s.io/curl-me-that",
 	}
-
-	return NewController(clientset, informer, transformer), nil
+	return NewController(clientset, factory, transformer)
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -53,7 +54,12 @@ func (p DataPopulator) getDataKeyValuePair(watchValue string) (string, string, e
 }
 
 func (p DataPopulator) fetchSimpleBody(URL string) (string, error) {
-	res, err := p.httpClient.Get(URL)
+	u, err := p.validURL(URL)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL (%s): %s", URL, err)
+	}
+
+	res, err := p.httpClient.Get(u.String())
 	if err != nil {
 		return "", fmt.Errorf("request failed: %s", err)
 	}
@@ -69,4 +75,13 @@ func (p DataPopulator) fetchSimpleBody(URL string) (string, error) {
 	}
 
 	return string(body), nil
+}
+
+// TODO: test
+func (p DataPopulator) validURL(URL string) (*url.URL, error) {
+	u, err := url.ParseRequestURI(URL)
+	if err != nil {
+		return url.ParseRequestURI("https://" + URL)
+	}
+	return u, nil
 }
