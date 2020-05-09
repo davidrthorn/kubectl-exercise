@@ -56,6 +56,8 @@ func main() {
 	server.Shutdown(ctx)
 
 	os.Exit(0)
+	build()
+
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {

@@ -6,10 +6,14 @@ import (
 	"log"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog"
 )
 
@@ -30,6 +34,7 @@ type Controller struct {
 	informerFactory informers.SharedInformerFactory
 	lister          listers.ConfigMapLister
 	transformer     ConfigMapTransformer
+	recorder        record.EventRecorder
 }
 
 // NewController returns a new configMap controller
@@ -39,10 +44,17 @@ func NewController(
 	transformer ConfigMapTransformer,
 ) *Controller {
 
+	klog.V(4).Info("Creating event broadcaster")
+	eventBroadcaster := record.NewBroadcaster()
+	eventBroadcaster.StartLogging(klog.Infof)
+	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events("")})
+	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
+
 	controller := &Controller{
 		kubeclientset:   kubeclientset,
 		informerFactory: informerFactory,
 		transformer:     transformer,
+		recorder:        recorder,
 	}
 
 	informer := informerFactory.Core().V1().ConfigMaps()
@@ -86,7 +98,7 @@ func (c *Controller) addHandler(obj interface{}) {
 
 	populatedConfigMap, err := c.transformer.Transform(configMap)
 	if err != nil {
-		log.Print(err)
+		c.recorder.Event(configMap, corev1.EventTypeWarning, err.Error(), "testmessage")
 		return
 	}
 	if populatedConfigMap == nil {

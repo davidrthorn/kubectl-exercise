@@ -23,23 +23,24 @@ type DataPopulator struct {
 
 // Transform fetches data based on a watched annotation and populates the `data` field with it
 func (p DataPopulator) Transform(configMap *corev1.ConfigMap) (*corev1.ConfigMap, error) {
-	annotations := configMap.GetAnnotations()
+	configMapCopy := configMap.DeepCopy()
+
+	annotations := configMapCopy.GetAnnotations()
 	dataStr, ok := annotations[p.keyToWatch]
 	if !ok {
-		return nil, nil // no watched annotation found
+		return configMapCopy, nil // no watched annotation found
 	}
 
 	dataKey, URL, err := p.getDataKeyValuePair(dataStr)
 	if err != nil {
-		return nil, fmt.Errorf("could not decode annotation: %s", err)
+		return configMapCopy, fmt.Errorf("could not decode annotation: %s", err)
 	}
 
 	fetchedValue, err := p.fetchSimpleBody(URL)
 	if err != nil {
-		return nil, fmt.Errorf("could not fetch data for annotation URL: %s", err)
+		return configMapCopy, fmt.Errorf("could not fetch data for annotation URL: %s", err)
 	}
 
-	configMapCopy := configMap.DeepCopy()
 	configMapCopy.Data[dataKey] = fetchedValue
 
 	return configMapCopy, nil

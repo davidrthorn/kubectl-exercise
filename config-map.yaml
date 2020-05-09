@@ -3,5 +3,7 @@ kind: ConfigMap
 metadata:
   name: kube-exercise-config
   annotations:
-    x-k8s.io/curl-me-that: joke=curl-a-joke.herokuapp.com
-data: {}
+    x-k8s.io/curl-me-that: joke=junk
+data: {
+  "test": "hello"
+}
