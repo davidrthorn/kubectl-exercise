@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io/ioutil"
 	"net/http"
 	"testing"
 
@@ -95,18 +97,31 @@ func TestTransformReturnsMapPopulatedWithDataForValidAnnotation(t *testing.T) {
 	sut := HTTPDataPopulator{mockClient, "watchThis"}
 
 	mockClient.get = func(URL string) (*http.Response, error) {
-		if URL != "http://app.example.com" {
+		if URL != "https://app.example.com" {
 			t.Errorf("Mock http client received incorrect URL. Expected: %s; got: %s", "https://app.example.com", URL)
 			t.FailNow()
 		}
-		return &http.Response{}, nil
+		res := &http.Response{
+			Body:       ioutil.NopCloser(bytes.NewReader([]byte("some return string"))),
+			StatusCode: http.StatusOK,
+		}
+		return res, nil
 	}
 
 	input := &corev1.ConfigMap{
 		ObjectMeta: v1.ObjectMeta{
 			Annotations: map[string]string{sut.keyToWatch: "someKey=https://app.example.com"},
 		},
+		Data: map[string]string{},
 	}
 
-	sut.Transform(input)
+	got, err := sut.Transform(input)
+	gotVal, ok := got.Data["someKey"]
+	if !ok {
+		t.Errorf("didn't find relevant key in map. Error was: %v", err)
+		t.FailNow()
+	}
+	if gotVal != "some return string" {
+		t.Errorf("configMap didn't correctly populate.") // FIXME: expect/reality
+	}
 }
