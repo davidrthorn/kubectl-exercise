@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -80,33 +78,44 @@ func (c *Controller) Run(ctx context.Context) {
 func (c *Controller) addHandler(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
-		log.Println("key invalid") // TODO: good error handling
+		klog.Errorf("could not retrieve key from object: %s", err)
 		return
 	}
 
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
-		fmt.Printf("invalid resource key: %s", key)
+		klog.Errorf("invalid resource key: %s", err)
 		return
 	}
 
 	configMap, err := c.lister.ConfigMaps(namespace).Get(name)
 	if err != nil {
-		log.Print(err)
+		klog.Errorf("could not retrieve config map: %s", err)
 		return
 	}
 
-	populatedConfigMap, err := c.transformer.Transform(configMap)
+	transformed, err := c.transformer.Transform(configMap)
 	if err != nil {
-		c.recorder.Event(configMap, corev1.EventTypeWarning, err.Error(), "testmessage")
+		c.recorder.Event(
+			transformed,
+			corev1.EventTypeWarning,
+			err.Error(),
+			"could not transform",
+		)
 		return
 	}
-	if populatedConfigMap == nil {
-		return
+	if transformed == nil {
+		return // no error but no result => did not contain watched annotation
 	}
 
-	_, err = c.kubeclientset.CoreV1().ConfigMaps(namespace).Update(populatedConfigMap)
+	_, err = c.kubeclientset.CoreV1().ConfigMaps(namespace).Update(transformed)
 	if err != nil {
-		log.Println(err)
+		c.recorder.Event(
+			transformed,
+			corev1.EventTypeWarning,
+			err.Error(),
+			"could not update",
+		)
+		return
 	}
 }
