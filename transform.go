@@ -15,14 +15,14 @@ type HTTPClient interface {
 	Get(url string) (*http.Response, error)
 }
 
-// DataPopulator updates a configMap's data based on a watched annotation
-type DataPopulator struct {
+// HTTPDataPopulator updates a configMap's data based on a watched annotation
+type HTTPDataPopulator struct {
 	httpClient HTTPClient
 	keyToWatch string
 }
 
 // Transform fetches data based on a watched annotation and populates the `data` field with it
-func (p DataPopulator) Transform(configMap *corev1.ConfigMap) (*corev1.ConfigMap, error) {
+func (p HTTPDataPopulator) Transform(configMap *corev1.ConfigMap) (*corev1.ConfigMap, error) {
 	configMapCopy := configMap.DeepCopy()
 
 	annotations := configMapCopy.GetAnnotations()
@@ -46,7 +46,7 @@ func (p DataPopulator) Transform(configMap *corev1.ConfigMap) (*corev1.ConfigMap
 	return configMapCopy, nil
 }
 
-func (p DataPopulator) getDataKeyValuePair(watchValue string) (string, string, error) {
+func (p HTTPDataPopulator) getDataKeyValuePair(watchValue string) (string, string, error) {
 	spl := strings.Split(watchValue, "=")
 	if len(spl) != 2 || spl[0] == "" || spl[1] == "" {
 		return "", "", fmt.Errorf("watch values should be strings of the form 'key=value'. Value is '%s'", watchValue)
@@ -54,7 +54,7 @@ func (p DataPopulator) getDataKeyValuePair(watchValue string) (string, string, e
 	return spl[0], spl[1], nil
 }
 
-func (p DataPopulator) fetchSimpleBody(URL string) (string, error) {
+func (p HTTPDataPopulator) fetchSimpleBody(URL string) (string, error) {
 	u, err := p.validURL(URL)
 	if err != nil {
 		return "", fmt.Errorf("invalid URL (%s): %s", URL, err)
@@ -79,7 +79,7 @@ func (p DataPopulator) fetchSimpleBody(URL string) (string, error) {
 }
 
 // TODO: test
-func (p DataPopulator) validURL(URL string) (*url.URL, error) {
+func (p HTTPDataPopulator) validURL(URL string) (*url.URL, error) {
 	u, err := url.ParseRequestURI(URL)
 	if err != nil {
 		return url.ParseRequestURI("https://" + URL)

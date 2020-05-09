@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog"
 )
 
 // ConfigMapTransformer transforms a configMap and returns the transformed copy
@@ -22,6 +23,7 @@ type ConfigMapTransformer interface {
 }
 
 func main() {
+	ctx := context.Background()
 
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/readiness", readinessHandler)
@@ -32,32 +34,34 @@ func main() {
 		Addr:    fmt.Sprintf(":%d", port),
 	}
 
-	ctx := context.Background()
-	controller := build()
-	go controller.Run(ctx)
-
 	// start server
 	go func() {
 		log.Println(fmt.Sprintf("Starting server on port %d", port))
 		if err := server.ListenAndServe(); err != nil {
-			log.Fatalln(err)
+			klog.Fatal("could not start server: " + err.Error())
 		}
 	}()
+
+	transformer := HttpDataPopulator{
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+		keyToWatch: "x-k8s.io/curl-me-that",
+	}
+	controller := buildController(os.Getenv("KUBECONFIG"), transformer)
+
+	go controller.Run(ctx)
 
 	// handle interrupt
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	sig := <-interrupt // block until interrupt
-	log.Println(fmt.Sprintf("Received %s: shutting down gracefully...", sig))
+	klog.Info(fmt.Sprintf("Received %s: shutting down gracefully...", sig))
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	server.Shutdown(ctx)
 
 	os.Exit(0)
-	build()
-
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -68,22 +72,17 @@ func readinessHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func build() *Controller {
-	kubeconfig := os.Getenv("KUBECONFIG")
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+func buildController(kubeConfPath string, transformer ConfigMapTransformer) *Controller {
+	config, err := clientcmd.BuildConfigFromFlags("", kubeConfPath)
 	if err != nil {
-		log.Fatal(err)
+		klog.Fatal(err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		log.Fatal(err)
+		klog.Fatal(err)
 	}
 
 	factory := informers.NewSharedInformerFactory(clientset, 0)
-	transformer := DataPopulator{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		keyToWatch: "x-k8s.io/curl-me-that",
-	}
 	return NewController(clientset, factory, transformer)
 }

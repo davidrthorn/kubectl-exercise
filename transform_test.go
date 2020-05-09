@@ -5,7 +5,7 @@ import (
 )
 
 func TestGetDataKeyValuePairFormatsCorrectlyForGoodString(t *testing.T) {
-	sut := DataPopulator{nil, ""}
+	sut := HttpDataPopulator{nil, ""}
 
 	cases := []map[string]string{
 		{
@@ -35,7 +35,7 @@ func TestGetDataKeyValuePairFormatsCorrectlyForGoodString(t *testing.T) {
 }
 
 func TestGetDataKeyValuePairReturnsErrorForBadString(t *testing.T) {
-	sut := DataPopulator{nil, ""}
+	sut := HttpDataPopulator{nil, ""}
 
 	cases := []string{
 		"someKey=",
