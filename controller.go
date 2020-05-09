@@ -68,8 +68,12 @@ func NewController(
 
 	klog.Info("Setting up event handlers")
 
-	// TODO: Set up an event handler for when configMaps change
-	// configMapInformer.Informer().AddEventHandler()
+	informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: controller.enqueueConfigMap,
+		UpdateFunc: func(old, new interface{}) {
+			controller.enqueueConfigMap(new)
+		},
+	})
 
 	return controller
 }
@@ -161,4 +165,13 @@ func (c *Controller) updateHandler(key string) error {
 
 	c.recorder.Event(configMap, corev1.EventTypeNormal, SuccessSynced, ConfigMapUpdatedSuccessfully)
 	return nil
+}
+
+func (c *Controller) enqueueConfigMap(obj interface{}) {
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+	c.workqueue.Add(key)
 }
