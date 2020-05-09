@@ -95,14 +95,16 @@ func TestValidURLIgnoresEmptyString(t *testing.T) {
 func TestTransformReturnsMapPopulatedWithDataForValidAnnotation(t *testing.T) {
 	mockClient := &MockHTTPClient{}
 	sut := HTTPDataPopulator{mockClient, "watchThis"}
+	returned := "some return string"
+	reqURL := "https://app.example.com"
 
 	mockClient.get = func(URL string) (*http.Response, error) {
-		if URL != "https://app.example.com" {
-			t.Errorf("Mock http client received incorrect URL. Expected: %s; got: %s", "https://app.example.com", URL)
+		if URL != reqURL {
+			t.Errorf("Mock http client received incorrect URL. Expected: %s; got: %s", reqURL, URL)
 			t.FailNow()
 		}
 		res := &http.Response{
-			Body:       ioutil.NopCloser(bytes.NewReader([]byte("some return string"))),
+			Body:       ioutil.NopCloser(bytes.NewReader([]byte(returned))),
 			StatusCode: http.StatusOK,
 		}
 		return res, nil
@@ -110,7 +112,7 @@ func TestTransformReturnsMapPopulatedWithDataForValidAnnotation(t *testing.T) {
 
 	input := &corev1.ConfigMap{
 		ObjectMeta: v1.ObjectMeta{
-			Annotations: map[string]string{sut.keyToWatch: "someKey=https://app.example.com"},
+			Annotations: map[string]string{sut.keyToWatch: "someKey=" + reqURL},
 		},
 		Data: map[string]string{},
 	}
@@ -121,7 +123,7 @@ func TestTransformReturnsMapPopulatedWithDataForValidAnnotation(t *testing.T) {
 		t.Errorf("didn't find relevant key in map. Error was: %v", err)
 		t.FailNow()
 	}
-	if gotVal != "some return string" {
-		t.Errorf("configMap didn't correctly populate.") // FIXME: expect/reality
+	if gotVal != returned {
+		t.Errorf("configMap didn't correctly populate. Expected data value to be: %s; got: %s", returned, gotVal)
 	}
 }
