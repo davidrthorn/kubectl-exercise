@@ -27,7 +27,7 @@ func (p HTTPDataPopulator) Transform(configMap *corev1.ConfigMap) (*corev1.Confi
 	annotations := configMapCopy.GetAnnotations()
 	dataStr, ok := annotations[p.keyToWatch]
 	if !ok {
-		return configMapCopy, nil // no watched annotation found
+		return nil, nil // no watched annotation found
 	}
 
 	dataKey, URL, err := p.getDataKeyValuePair(dataStr)
