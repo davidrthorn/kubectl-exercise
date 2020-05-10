@@ -17,15 +17,6 @@ import (
 )
 
 const controllerAgentName = "configMap-controller"
-const timeout = 10 * time.Second
-
-const (
-	// SuccessSynced is used as part of the Event 'reason'
-	SuccessSynced = "Synced"
-	// ConfigMapUpdatedSuccessfully is the message used for an Event fired when a
-	// ConfigMap is successfully updated
-	ConfigMapUpdatedSuccessfully = "ConfigMap updated successfully"
-)
 
 // Controller is a controller to auto-populate ConfigMaps with fetched data
 type Controller struct {
@@ -61,7 +52,6 @@ func NewController(
 	}
 
 	klog.Info("Setting up event handlers")
-
 	informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.updateConfigMap,
 		UpdateFunc: func(oldObj, newObj interface{}) {
@@ -72,18 +62,18 @@ func NewController(
 	return controller
 }
 
-// Run dispatches workers and listens for shutdown signal
+// Run starts the informer and syncs caches
 func (c *Controller) Run(ctx context.Context) {
 	c.informerFactory.Start(ctx.Done())
 	if !cache.WaitForCacheSync(ctx.Done(), c.informer.Informer().HasSynced) {
-		klog.Errorf("caches did not sync")
+		klog.Errorf("caches did not sync") // TODO: this should do something more than simply logging
 	}
 }
 
 func (c *Controller) updateConfigMap(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
-		klog.Errorf("could not retrieve key from object: %s", err)
+		klog.Errorf("couldn't retrieve key from object: %s", err)
 		return
 	}
 
@@ -95,7 +85,7 @@ func (c *Controller) updateConfigMap(obj interface{}) {
 
 	configMap, err := c.informer.Lister().ConfigMaps(namespace).Get(name)
 	if err != nil {
-		klog.Errorf("could not retrieve config map: %s", err)
+		klog.Errorf("couldn't retrieve config map %s/%s: %s", namespace, name, err)
 		return
 	}
 
@@ -114,5 +104,5 @@ func (c *Controller) updateConfigMap(obj interface{}) {
 		return
 	}
 
-	time.Sleep(500 * time.Millisecond) // deplorable hack to stop lots of updates, since we don't have a proper queue
+	time.Sleep(500 * time.Millisecond) // TODO: remove this deplorable hack once proper queueing is implemented
 }

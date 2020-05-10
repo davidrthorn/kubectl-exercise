@@ -17,7 +17,7 @@ import (
 	"k8s.io/klog"
 )
 
-// ConfigMapTransformer transforms a configMap and returns the transformed copy
+// ConfigMapTransformer returned a transformed deep copy of a config map
 type ConfigMapTransformer interface {
 	Transform(*corev1.ConfigMap) (*corev1.ConfigMap, error)
 }
@@ -44,7 +44,7 @@ func main() {
 
 	transformer := HTTPDataPopulator{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
-		keyToWatch: "x-k8s.io/curl-me-that",
+		KeyToWatch: "x-k8s.io/curl-me-that",
 	}
 	controller := buildController(os.Getenv("KUBECONFIG"), transformer)
 
@@ -75,12 +75,12 @@ func readinessHandler(w http.ResponseWriter, r *http.Request) {
 func buildController(kubeConfPath string, transformer ConfigMapTransformer) *Controller {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeConfPath)
 	if err != nil {
-		klog.Fatal(err)
+		klog.Fatal("Could not load config: " + err.Error())
 	}
 
 	client, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		klog.Fatal(err)
+		klog.Fatal("Could not create client: " + err.Error())
 	}
 
 	factory := informers.NewSharedInformerFactory(client, 0)

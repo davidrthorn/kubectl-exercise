@@ -21,9 +21,8 @@ func (m mockTransformer) Transform(c *v1.ConfigMap) (*v1.ConfigMap, error) {
 	return m.transform(c)
 }
 
-// There is a known issue with namespaces and events in fake client:
-// https://github.com/kubernetes/kubernetes/pull/70343
-// We have to mock the recorded ourselves
+// Encountered a known issue with namespaces and events in fake client, so had to mock
+// the event recorded manually. See github.com/kubernetes/kubernetes/pull/70343
 type mockRecorder struct {
 	event func(object runtime.Object, eventtype string, reason string, message string)
 }
@@ -40,7 +39,7 @@ func (r mockRecorder) PastEventf(object runtime.Object, timestamp metav1.Time, e
 func (r mockRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
 }
 
-func TestUpdateConfigMapUpdatesWatchedConfigMapWithTransformedVersion(t *testing.T) {
+func TestUpdateConfigMapUpdatesConfigMapWithTransformedVersion(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -49,7 +48,7 @@ func TestUpdateConfigMapUpdatesWatchedConfigMapWithTransformedVersion(t *testing
 	configMap := &v1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "test-cm"}}
 	_, err := client.CoreV1().ConfigMaps("test-namespace").Create(configMap)
 	if err != nil {
-		t.Fatalf("Couldn't create configMap: %v", err)
+		t.Fatalf("couldn't create configMap: %v", err)
 	}
 
 	transformer := mockTransformer{
@@ -69,23 +68,23 @@ func TestUpdateConfigMapUpdatesWatchedConfigMapWithTransformedVersion(t *testing
 
 	updated, err := client.CoreV1().ConfigMaps("test-namespace").Get("test-cm", metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("Couldn't retrieve configMap: %v", err)
+		t.Fatalf("couldn't retrieve configMap: %v", err)
 	}
 
 	if updated.Data == nil {
-		t.Fatalf("No Data found on configMap")
+		t.Fatalf("no Data found on configMap")
 	}
 
 	gotVal, ok := updated.Data["testKey"]
 	if !ok {
-		t.Fatalf("Key not found in Data")
+		t.Fatalf("key not found in Data")
 	}
 	if gotVal != "testValue" {
-		t.Fatalf("Got wrong Data value. Expected %s; got %s", "testValue", gotVal)
+		t.Fatalf("got wrong Data value. Expected %s; got %s", "testValue", gotVal)
 	}
 }
 
-func TestUpdateConfigMapRecordsErrorAsConfigMapEvent(t *testing.T) {
+func TestUpdateConfigMapRecordsEventWithCorrectReasonOnFailureToTransform(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -94,7 +93,7 @@ func TestUpdateConfigMapRecordsErrorAsConfigMapEvent(t *testing.T) {
 	configMap := &v1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "test-cm"}}
 	_, err := client.CoreV1().ConfigMaps("test-namespace").Create(configMap)
 	if err != nil {
-		t.Fatalf("Couldn't create configMap: %v", err)
+		t.Fatalf("couldn't create configMap: %v", err)
 	}
 
 	fakeReason := "test error reason"
@@ -107,6 +106,7 @@ func TestUpdateConfigMapRecordsErrorAsConfigMapEvent(t *testing.T) {
 	factory := informers.NewSharedInformerFactory(client, 0)
 	controller := NewController(client, factory, transformer)
 
+	// Overwrite the controller's recorder with the mock
 	reasonCh := make(chan string)
 	controller.recorder = mockRecorder{
 		event: func(object runtime.Object, eventtype string, reason string, message string) {
@@ -119,9 +119,9 @@ func TestUpdateConfigMapRecordsErrorAsConfigMapEvent(t *testing.T) {
 	select {
 	case reason := <-reasonCh:
 		if reason != fakeReason {
-			t.Fatalf("Got wrong reason for failure. Expected %s; got %s", fakeReason, reason)
+			t.Fatalf("got wrong reason for failure. Expected %s; got %s", fakeReason, reason)
 		}
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("ran out of time waiting for event reason")
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("ran out of time waiting for event to be triggered")
 	}
 }

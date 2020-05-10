@@ -14,18 +14,21 @@ type HTTPClient interface {
 	Get(url string) (*http.Response, error)
 }
 
-// HTTPDataPopulator updates a configMap's data based on a watched annotation
+// HTTPDataPopulator updates a configMap's Data
+// with data via HTTP, if that configMap has a
+// valid, watched annotation
 type HTTPDataPopulator struct {
 	httpClient HTTPClient
-	keyToWatch string
+	KeyToWatch string
 }
 
-// Transform fetches data based on a watched annotation and populates the `data` field with it
+// Transform fetches data based on a watched annotation key
+// and populates the configMap's Data with the result
 func (p HTTPDataPopulator) Transform(configMap *corev1.ConfigMap) (*corev1.ConfigMap, error) {
 	configMapCopy := configMap.DeepCopy()
 
 	annotations := configMapCopy.GetAnnotations()
-	dataStr, ok := annotations[p.keyToWatch]
+	dataStr, ok := annotations[p.KeyToWatch]
 	if !ok {
 		return nil, nil // no watched annotation found
 	}
@@ -37,7 +40,7 @@ func (p HTTPDataPopulator) Transform(configMap *corev1.ConfigMap) (*corev1.Confi
 
 	fetchedValue, err := p.fetchSimpleBody(URL)
 	if err != nil {
-		return configMapCopy, fmt.Errorf("could not fetch data for annotation URL: %s", err)
+		return configMapCopy, fmt.Errorf("could not fetch data for annotation URL %s: %s", URL, err)
 	}
 
 	if configMapCopy.Data == nil {
