@@ -100,8 +100,7 @@ func TestTransformReturnsMapPopulatedWithDataForValidAnnotation(t *testing.T) {
 
 	mockClient.get = func(URL string) (*http.Response, error) {
 		if URL != reqURL {
-			t.Errorf("Mock http client received incorrect URL. Expected: %s; got: %s", reqURL, URL)
-			t.FailNow()
+			t.Fatalf("Mock http client received incorrect URL. Expected: %s; got: %s", reqURL, URL)
 		}
 		res := &http.Response{
 			Body:       ioutil.NopCloser(bytes.NewReader([]byte(returned))),
@@ -120,10 +119,45 @@ func TestTransformReturnsMapPopulatedWithDataForValidAnnotation(t *testing.T) {
 	got, err := sut.Transform(input)
 	gotVal, ok := got.Data["someKey"]
 	if !ok {
-		t.Errorf("didn't find relevant key in map. Error was: %v", err)
+		t.Errorf("Didn't find relevant key in map. Error was: %v", err)
 		t.FailNow()
 	}
 	if gotVal != returned {
-		t.Errorf("configMap didn't correctly populate. Expected data value to be: %s; got: %s", returned, gotVal)
+		t.Errorf("ConfigMap didn't correctly populate. Expected data value to be: %s; got: %s", returned, gotVal)
+	}
+}
+
+func TestTransformReturnsMapPopulatedWithDataForValidAnnotationWhenNoExistingData(t *testing.T) {
+	mockClient := &MockHTTPClient{}
+	sut := HTTPDataPopulator{mockClient, "watchThis"}
+	returned := "some return string"
+	reqURL := "https://app.example.com"
+
+	mockClient.get = func(URL string) (*http.Response, error) {
+		if URL != reqURL {
+			t.Errorf("Mock http client received incorrect URL. Expected: %s; got: %s", reqURL, URL)
+			t.FailNow()
+		}
+		res := &http.Response{
+			Body:       ioutil.NopCloser(bytes.NewReader([]byte(returned))),
+			StatusCode: http.StatusOK,
+		}
+		return res, nil
+	}
+
+	input := &corev1.ConfigMap{
+		ObjectMeta: v1.ObjectMeta{
+			Annotations: map[string]string{sut.keyToWatch: "someKey=" + reqURL},
+		},
+	}
+
+	got, err := sut.Transform(input)
+	gotVal, ok := got.Data["someKey"]
+	if !ok {
+		t.Errorf("Didn't find relevant key in map. Error was: %v", err)
+		t.FailNow()
+	}
+	if gotVal != returned {
+		t.Errorf("ConfigMap didn't correctly populate. Expected data value to be: %s; got: %s", returned, gotVal)
 	}
 }

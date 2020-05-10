@@ -40,6 +40,9 @@ func (p HTTPDataPopulator) Transform(configMap *corev1.ConfigMap) (*corev1.Confi
 		return configMapCopy, fmt.Errorf("could not fetch data for annotation URL: %s", err)
 	}
 
+	if configMapCopy.Data == nil {
+		configMapCopy.Data = map[string]string{}
+	}
 	configMapCopy.Data[dataKey] = fetchedValue
 
 	return configMapCopy, nil
@@ -71,7 +74,7 @@ func (p HTTPDataPopulator) fetchSimpleBody(URL string) (string, error) {
 		return "", fmt.Errorf("could not read body: %s", err)
 	}
 
-	return string(body), nil
+	return strings.TrimSuffix(string(body), "\n"), nil
 }
 
 func (p HTTPDataPopulator) prefixURL(URL string) string {

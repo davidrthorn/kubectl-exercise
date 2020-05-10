@@ -6,6 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
+	v1 "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -28,8 +29,9 @@ const (
 
 // Controller is a controller to auto-populate ConfigMaps with fetched data
 type Controller struct {
-	kubeclientset   kubernetes.Interface
+	client          kubernetes.Interface
 	informerFactory informers.SharedInformerFactory
+	informer        v1.ConfigMapInformer
 	lister          listers.ConfigMapLister
 	transformer     ConfigMapTransformer
 	recorder        record.EventRecorder
@@ -37,7 +39,7 @@ type Controller struct {
 
 // NewController returns a new configMap controller
 func NewController(
-	kubeclientset kubernetes.Interface,
+	client kubernetes.Interface,
 	informerFactory informers.SharedInformerFactory,
 	transformer ConfigMapTransformer,
 ) *Controller {
@@ -45,25 +47,25 @@ func NewController(
 	klog.V(4).Info("Creating event broadcaster")
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(klog.Infof)
-	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events("")})
+	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: client.CoreV1().Events("")})
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
 
+	informer := informerFactory.Core().V1().ConfigMaps()
+
 	controller := &Controller{
-		kubeclientset:   kubeclientset,
+		client:          client,
 		informerFactory: informerFactory,
+		informer:        informer,
 		transformer:     transformer,
 		recorder:        recorder,
 	}
 
-	informer := informerFactory.Core().V1().ConfigMaps()
-	controller.lister = informer.Lister()
-
 	klog.Info("Setting up event handlers")
 
 	informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.addHandler,
+		AddFunc: controller.updateConfigMap,
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			controller.addHandler(newObj)
+			controller.updateConfigMap(newObj)
 		},
 	})
 
@@ -73,9 +75,12 @@ func NewController(
 // Run dispatches workers and listens for shutdown signal
 func (c *Controller) Run(ctx context.Context) {
 	c.informerFactory.Start(ctx.Done())
+	if !cache.WaitForCacheSync(ctx.Done(), c.informer.Informer().HasSynced) {
+		klog.Errorf("caches did not sync")
+	}
 }
 
-func (c *Controller) addHandler(obj interface{}) {
+func (c *Controller) updateConfigMap(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		klog.Errorf("could not retrieve key from object: %s", err)
@@ -88,7 +93,7 @@ func (c *Controller) addHandler(obj interface{}) {
 		return
 	}
 
-	configMap, err := c.lister.ConfigMaps(namespace).Get(name)
+	configMap, err := c.informer.Lister().ConfigMaps(namespace).Get(name)
 	if err != nil {
 		klog.Errorf("could not retrieve config map: %s", err)
 		return
@@ -96,26 +101,18 @@ func (c *Controller) addHandler(obj interface{}) {
 
 	transformed, err := c.transformer.Transform(configMap)
 	if err != nil {
-		c.recorder.Event(
-			transformed,
-			corev1.EventTypeWarning,
-			err.Error(),
-			"could not transform",
-		)
+		c.recorder.Event(transformed, corev1.EventTypeWarning, err.Error(), "could not transform")
 		return
 	}
 	if transformed == nil {
 		return // no error but no result => did not contain watched annotation
 	}
 
-	_, err = c.kubeclientset.CoreV1().ConfigMaps(namespace).Update(transformed)
+	_, err = c.client.CoreV1().ConfigMaps(namespace).Update(transformed)
 	if err != nil {
-		c.recorder.Event(
-			transformed,
-			corev1.EventTypeWarning,
-			err.Error(),
-			"could not update",
-		)
+		c.recorder.Event(transformed, corev1.EventTypeWarning, err.Error(), "could not update")
 		return
 	}
+
+	time.Sleep(500 * time.Millisecond) // deplorable hack to stop lots of updates, since we don't have a proper queue
 }

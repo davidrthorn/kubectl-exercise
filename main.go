@@ -78,11 +78,11 @@ func buildController(kubeConfPath string, transformer ConfigMapTransformer) *Con
 		klog.Fatal(err)
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	client, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		klog.Fatal(err)
 	}
 
-	factory := informers.NewSharedInformerFactory(clientset, 0)
-	return NewController(clientset, factory, transformer)
+	factory := informers.NewSharedInformerFactory(client, 0)
+	return NewController(client, factory, transformer)
 }
