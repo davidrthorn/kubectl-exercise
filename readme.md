@@ -3,10 +3,10 @@
 To build and run the controller, all you need to do is set a path variable `KUBECONFIG` that points
 to a kubernetes config file for your cluster.  
 
-# Questions
+## Questions
 _Actual phrasing has been omitted to preserve repo anonymity_
 
-# Different URL content from 'curl' request
+### Different URL content from 'curl' request
 
 I realised when I read this question again having written the code that this was the cause of a bug that
 I wrongly attributed to a lack of queueing. My controller does not ensure that the update
@@ -21,5 +21,17 @@ matches the observed state. My tests pass because my mock http client always ret
 I wrongly assumed that the lack of queueing in my controller was the issue, but I don't think it was.
 Had I diagnosed this issue earlier, I might have had time to rewrite the code. To fix this, I would
 need a way to confirm that the configMap is in the desired state, where this desired state was not
-recalculated every time the controller fired. 
+recalculated every time the controller fired. I could also add a test wherein the mockClient generates
+a random response or iterates through an array of responses, which would expose this bug.
 
+### Spec and status
+
+The distinction between spec and status illustrates the fundamental aim of a running Kubernetes control plane,
+which is to maintain the state of a system by acting on knowledge of how the system is now and how it should be.
+The spec specifies the desired state of the system; the status describes its current state.
+
+The spec is outlined in the configuration yaml, whereas status can only be changed via the API. This is because
+the purpose of the config file is the _describe_ or _declare_ the desired state. It would make no sense
+to include status as a section in this file because a) the file says _what_ you want, not how to make it happen;
+and b) the desired state is independent of the current state. The current state has no bearing on what we
+want the system to look like.
