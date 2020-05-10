@@ -42,7 +42,7 @@ want the system to look like.
 ### Edge vs level triggering
 
 In simple terms, edge triggering is a matter of responding to a change of state; level triggering is a matter of responding
-to the state itself. Edge triggering cares _that something changed_; level triggering cares _what it is now_.
+to the state itself. Edge triggering cares _that something changed_; level triggering cares _what state something is in now_.
 
 Kubernetes is level triggered, which is not suprising given that its entire approach is conceptualised in terms of
 arriving at a state, rather than performing a series of tasks (although it has to do things to arrive at a state, obviously).
